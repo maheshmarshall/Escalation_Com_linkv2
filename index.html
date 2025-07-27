@@ -66,212 +66,312 @@
     </div>
 
     <script>
-        // **FIX: Wrap the entire script in an IIFE to prevent global scope issues.**
-        (function() {
-            // Get references to HTML elements
-            const fileInput = document.getElementById('fileInput');
-            const processButton = document.getElementById('processButton');
-            const messageBox = document.getElementById('messageBox');
-            const downloadArea = document.getElementById('downloadArea');
-            const downloadCsvLink = document.getElementById('downloadCsvLink');
-            const downloadExcelLink = document.getElementById('downloadExcelLink');
+        // Get references to HTML elements
+        const fileInput = document.getElementById('fileInput');
+        const processButton = document.getElementById('processButton');
+        const messageBox = document.getElementById('messageBox');
+        const downloadArea = document.getElementById('downloadArea');
+        const downloadCsvLink = document.getElementById('downloadCsvLink');
+        const downloadExcelLink = document.getElementById('downloadExcelLink');
 
-            // Define the maximum file size in bytes (20MB)
-            const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
+        // Define the maximum file size in bytes (20MB)
+        const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024;
 
-            // Variables to store processed data and original headers
-            let processedDataRows = [];
-            let originalHeaders = [];
+        // Variables to store processed data and original headers
+        let processedDataRows = [];
+        let originalHeaders = [];
 
-            /**
-             * Displays a message to the user.
-             * @param {string} message - The message to display.
-             * @param {'info' | 'success' | 'error'} type - The type of message.
-             */
-            function showMessage(message, type = 'info') {
-                messageBox.textContent = message;
-                messageBox.className = 'mt-6 p-4 rounded-lg text-sm'; // Reset classes
+        /**
+         * Displays a message to the user.
+         * @param {string} message - The message to display.
+         * @param {'info' | 'success' | 'error'} type - The type of message.
+         */
+        function showMessage(message, type = 'info') {
+            messageBox.textContent = message;
+            messageBox.className = 'mt-6 p-4 rounded-lg text-sm';
+            
+            if (type === 'error') {
+                messageBox.classList.add('bg-red-50', 'text-red-800');
+            } else if (type === 'success') {
+                messageBox.classList.add('bg-green-50', 'text-green-800');
+            } else {
+                messageBox.classList.add('bg-blue-50', 'text-blue-800');
+            }
+            messageBox.classList.remove('hidden');
+        }
+
+        /**
+         * Hides the message box.
+         */
+        function hideMessage() {
+            messageBox.classList.add('hidden');
+        }
+
+        /**
+         * Generates a formatted timestamp string for filenames.
+         * @returns {string} Formatted timestamp (e.g., 2025-07-27_15-01-00).
+         */
+        function getTimestamp() {
+            const now = new Date();
+            const year = now.getFullYear();
+            const month = String(now.getMonth() + 1).padStart(2, '0');
+            const day = String(now.getDate()).padStart(2, '0');
+            const hours = String(now.getHours()).padStart(2, '0');
+            const minutes = String(now.getMinutes()).padStart(2, '0');
+            const seconds = String(now.getSeconds()).padStart(2, '0');
+            return `${year}-${month}-${day}_${hours}-${minutes}-${seconds}`;
+        }
+
+        /**
+         * Prepares the processed data for CSV download.
+         */
+        function setupCsvDownload() {
+            const csvContent = [originalHeaders, ...processedDataRows]
+                .map(row => row.map(cell => {
+                    const cellStr = String(cell || '');
+                    if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
+                        return `"${cellStr.replace(/"/g, '""')}"`;
+                    }
+                    return cellStr;
+                }).join(','))
+                .join('\n');
+            
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            downloadCsvLink.href = url;
+            const timestamp = getTimestamp();
+            downloadCsvLink.download = `Escalation_Com_Link_${timestamp}.csv`;
+        }
+
+        /**
+         * Creates pivot table data from the processed rows, including totals.
+         * @returns {Array<Array<string|number>>} The data for the pivot sheet.
+         */
+        function createPivotData() {
+            const headerMap = new Map(originalHeaders.map((h, i) => [h, i]));
+            const customerCodeIndex = headerMap.get('CustomerCode');
+            const newAmountIndex = headerMap.get('NewAmountInclVAT');
+            const yearIndex = headerMap.get('Year');
+
+            const pivotAggregates = new Map();
+            const uniqueCustomers = new Set();
+            let grandTotal = 0;
+
+            for (const row of processedDataRows) {
+                const customerCode = row[customerCodeIndex];
+                const year = row[yearIndex];
+                const amount = parseFloat(row[newAmountIndex]) || 0;
                 
-                if (type === 'error') {
-                    messageBox.classList.add('bg-red-50', 'text-red-800');
-                } else if (type === 'success') {
-                    messageBox.classList.add('bg-green-50', 'text-green-800');
+                if (!customerCode || !year) continue;
+
+                uniqueCustomers.add(customerCode);
+                grandTotal += amount;
+
+                const key = `${customerCode}|${year}`;
+                const currentSum = pivotAggregates.get(key) || 0;
+                pivotAggregates.set(key, currentSum + amount);
+            }
+
+            // Sort by Year (newest to oldest), then by CustomerCode
+            const sortedAggregates = Array.from(pivotAggregates.entries()).sort((a, b) => {
+                const [codeA, yearA] = a[0].split('|');
+                const [codeB, yearB] = b[0].split('|');
+                if (yearA !== yearB) {
+                    return yearB - yearA; // Sort by year descending
+                }
+                return codeA.localeCompare(codeB); // Then by customer code ascending
+            });
+
+            const pivotData = [['CustomerCode', 'Year', 'Sum of NewAmountInclVAT']];
+            for (const [key, sum] of sortedAggregates) {
+                const [customerCode, year] = key.split('|');
+                pivotData.push([customerCode, year, sum]);
+            }
+            
+            // --- Create and place the summary block to the side ---
+            const summaryData = [
+                ['Summary', ''],
+                ['Total Unique Customers', uniqueCustomers.size],
+                ['Grand Total (NewAmountInclVAT)', grandTotal.toFixed(2)]
+            ];
+
+            // Add a spacer column to all existing pivot rows
+            pivotData.forEach(row => row.push(''));
+
+            // Merge the summary data into the pivot data table
+            for (let i = 0; i < summaryData.length; i++) {
+                const summaryRow = summaryData[i];
+                if (pivotData[i]) {
+                    // If the row exists, append the summary info
+                    pivotData[i].push(...summaryRow);
                 } else {
-                    messageBox.classList.add('bg-blue-50', 'text-blue-800');
+                    // If the pivot table is shorter than the summary, create a new row
+                    // The new row needs padding on the left to align correctly
+                    const padding = new Array(pivotData[0].length - summaryRow.length).fill('');
+                    pivotData.push([...padding, ...summaryRow]);
                 }
-                messageBox.classList.remove('hidden');
             }
 
-            /**
-             * Hides the message box.
-             */
-            function hideMessage() {
-                messageBox.classList.add('hidden');
+            return pivotData;
+        }
+
+        /**
+         * Prepares the processed data for Excel download, including a pivot table.
+         */
+        function setupExcelDownload() {
+            const mainWs = XLSX.utils.aoa_to_sheet([originalHeaders, ...processedDataRows]);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, mainWs, "ProcessedData");
+
+            const pivotData = createPivotData();
+            const pivotWs = XLSX.utils.aoa_to_sheet(pivotData);
+            XLSX.utils.book_append_sheet(wb, pivotWs, "Piv");
+            
+            const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const blob = new Blob([wbout], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            downloadExcelLink.href = url;
+            const timestamp = getTimestamp();
+            downloadExcelLink.download = `Escalation_Com_Link_${timestamp}.xlsx`;
+        }
+
+        // Event listener for the process button
+        processButton.addEventListener('click', () => {
+            hideMessage();
+            downloadArea.classList.add('hidden');
+            processedDataRows = [];
+            originalHeaders = [];
+
+            const file = fileInput.files[0];
+
+            if (!file) {
+                showMessage('Please select an Excel or CSV file first.', 'error');
+                return;
             }
 
-            /**
-             * Prepares the processed data for CSV download.
-             */
-            function setupCsvDownload() {
-                const csvContent = [originalHeaders, ...processedDataRows]
-                    .map(row => row.map(cell => {
-                        const cellStr = String(cell || '');
-                        if (cellStr.includes(',') || cellStr.includes('"') || cellStr.includes('\n')) {
-                            return `"${cellStr.replace(/"/g, '""')}"`;
-                        }
-                        return cellStr;
-                    }).join(','))
-                    .join('\n');
-                
-                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
-                const url = URL.createObjectURL(blob);
-                downloadCsvLink.href = url;
-                downloadCsvLink.download = 'processed_data.csv';
+            if (file.size > MAX_FILE_SIZE_BYTES) {
+                showMessage(`File size exceeds the limit of ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`, 'error');
+                return;
             }
 
-            /**
-             * Prepares the processed data for Excel download.
-             */
-            function setupExcelDownload() {
-                const dataForExcel = [originalHeaders, ...processedDataRows];
-                const ws = XLSX.utils.aoa_to_sheet(dataForExcel);
-                const wb = XLSX.utils.book_new();
-                XLSX.utils.book_append_sheet(wb, ws, "ProcessedData");
-                
-                const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
-                const blob = new Blob([wbout], { type: 'application/octet-stream' });
-                const url = URL.createObjectURL(blob);
-                downloadExcelLink.href = url;
-                downloadExcelLink.download = 'processed_data.xlsx';
+            const fileExtension = file.name.split('.').pop().toLowerCase();
+            const isExcel = ['xlsx', 'xls'].includes(fileExtension);
+            const isCsv = fileExtension === 'csv';
+
+            if (!isCsv && !isExcel) {
+                showMessage('Please upload a valid CSV or Excel (.xlsx, .xls) file.', 'error');
+                return;
             }
 
-            // Event listener for the process button
-            processButton.addEventListener('click', () => {
-                hideMessage();
-                downloadArea.classList.add('hidden');
-                processedDataRows = [];
-                originalHeaders = [];
+            showMessage('Processing your file...', 'info');
 
-                const file = fileInput.files[0];
+            const reader = new FileReader();
 
-                if (!file) {
-                    showMessage('Please select an Excel or CSV file first.', 'error');
-                    return;
-                }
+            reader.onload = (e) => {
+                try {
+                    const fileData = e.target.result;
+                    let workbook;
 
-                if (file.size > MAX_FILE_SIZE_BYTES) {
-                    showMessage(`File size exceeds the limit of ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB.`, 'error');
-                    return;
-                }
+                    if (isExcel) {
+                        const data = new Uint8Array(fileData);
+                        workbook = XLSX.read(data, { type: 'array' });
+                    } else {
+                        workbook = XLSX.read(fileData, { type: 'string' });
+                    }
 
-                const fileExtension = file.name.split('.').pop().toLowerCase();
-                const isExcel = ['xlsx', 'xls'].includes(fileExtension);
-                const isCsv = fileExtension === 'csv';
+                    const sheetName = workbook.SheetNames[0];
+                    const worksheet = workbook.Sheets[sheetName];
+                    const dataArray = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
 
-                if (!isCsv && !isExcel) {
-                    showMessage('Please upload a valid CSV or Excel (.xlsx, .xls) file.', 'error');
-                    return;
-                }
+                    if (dataArray.length < 2) {
+                        showMessage('The file is empty or contains only a header.', 'error');
+                        return;
+                    }
 
-                showMessage('Processing your file...', 'info');
+                    originalHeaders = dataArray[0].map(h => String(h).trim());
+                    // Add "Year" to headers for the processed data if it doesn't exist
+                    if (!originalHeaders.includes('Year')) {
+                        originalHeaders.push('Year');
+                    }
+                    const headerIndexMap = new Map(originalHeaders.map((header, index) => [header, index]));
 
-                const reader = new FileReader();
 
-                reader.onload = (e) => {
-                    try {
-                        const fileData = e.target.result;
-                        let workbook;
-
-                        if (isExcel) {
-                            const data = new Uint8Array(fileData);
-                            workbook = XLSX.read(data, { type: 'array' });
-                        } else {
-                            workbook = XLSX.read(fileData, { type: 'string' });
-                        }
-
-                        const sheetName = workbook.SheetNames[0];
-                        const worksheet = workbook.Sheets[sheetName];
-                        const dataArray = XLSX.utils.sheet_to_json(worksheet, { header: 1, defval: "" });
-
-                        if (dataArray.length < 2) {
-                            showMessage('The file is empty or contains only a header.', 'error');
+                    const requiredHeaders = ['ChargeType', 'ContractStartDate', 'CustomerCode', 'NewAmountInclVAT'];
+                    for (const reqHeader of requiredHeaders) {
+                        if (!headerIndexMap.has(reqHeader)) {
+                            showMessage(`Missing required column for processing: "${reqHeader}".`, 'error');
                             return;
                         }
-
-                        originalHeaders = dataArray[0].map(h => String(h).trim());
-                        const headerIndexMap = new Map(originalHeaders.map((header, index) => [header, index]));
-
-                        const requiredHeaders = ['ChargeType', 'ContractStartDate'];
-                        for (const reqHeader of requiredHeaders) {
-                            if (!headerIndexMap.has(reqHeader)) {
-                                showMessage(`Missing required column: "${reqHeader}".`, 'error');
-                                return;
-                            }
-                        }
-
-                        const chargeTypeIndex = headerIndexMap.get('ChargeType');
-                        const contractStartDateIndex = headerIndexMap.get('ContractStartDate');
-                        const expectedColumnCount = originalHeaders.length;
-
-                        const dataRows = dataArray.slice(1);
-                        for (const row of dataRows) {
-                            if (String(row[chargeTypeIndex]).trim() === '14') {
-                                continue;
-                            }
-
-                            const currentRow = [...row];
-
-                            const dateValue = String(currentRow[contractStartDateIndex]).trim();
-                            if (dateValue && dateValue.length >= 4) {
-                                 const year = new Date(dateValue).getFullYear();
-                                 if (!isNaN(year)) {
-                                     currentRow[contractStartDateIndex] = year;
-                                 } else {
-                                     currentRow[contractStartDateIndex] = dateValue.substring(0, 4);
-                                 }
-                            } else {
-                                currentRow[contractStartDateIndex] = '';
-                            }
-                            
-                            // Ensure row structure is maintained
-                            while (currentRow.length < expectedColumnCount) {
-                                currentRow.push('');
-                            }
-                            if (currentRow.length > expectedColumnCount) {
-                                currentRow.length = expectedColumnCount;
-                            }
-
-                            processedDataRows.push(currentRow);
-                        }
-
-                        if (processedDataRows.length === 0) {
-                             showMessage('Processing complete, but no data rows remained after filtering.', 'info');
-                             return;
-                        }
-
-                        setupCsvDownload();
-                        setupExcelDownload();
-
-                        downloadArea.classList.remove('hidden');
-                        showMessage('File processed successfully! You can now download the new file.', 'success');
-
-                    } catch (error) {
-                        console.error('Error processing file:', error);
-                        showMessage('An error occurred during processing. Please check the file format.', 'error');
                     }
-                };
+                    
+                    const chargeTypeIndex = headerIndexMap.get('ChargeType');
+                    const contractStartDateIndex = headerIndexMap.get('ContractStartDate');
+                    const expectedColumnCount = originalHeaders.length;
 
-                reader.onerror = () => {
-                    showMessage('Failed to read the file. Please try again.', 'error');
-                };
+                    const dataRows = dataArray.slice(1);
+                    for (const row of dataRows) {
+                        if (String(row[chargeTypeIndex]).trim() === '14') {
+                            continue;
+                        }
 
-                if (isExcel) {
-                    reader.readAsArrayBuffer(file);
-                } else {
-                    reader.readAsText(file);
+                        const currentRow = [...row];
+                        let year = '';
+
+                        const dateValue = String(currentRow[contractStartDateIndex]).trim();
+                        if (dateValue && dateValue.length >= 4) {
+                             const parsedYear = new Date(dateValue).getFullYear();
+                             if (!isNaN(parsedYear)) {
+                                 year = parsedYear;
+                             } else {
+                                 year = dateValue.substring(0, 4);
+                             }
+                        }
+                        
+                        // Add the extracted year as a new column
+                        // Ensure the row has enough columns first
+                        while (currentRow.length < headerIndexMap.get('Year')) {
+                            currentRow.push('');
+                        }
+                        currentRow[headerIndexMap.get('Year')] = year;
+
+                        // Ensure final row structure is maintained
+                        while (currentRow.length < expectedColumnCount) {
+                            currentRow.push('');
+                        }
+                        if (currentRow.length > expectedColumnCount) {
+                            currentRow.length = expectedColumnCount;
+                        }
+
+                        processedDataRows.push(currentRow);
+                    }
+
+                    if (processedDataRows.length === 0) {
+                         showMessage('Processing complete, but no data rows remained after filtering.', 'info');
+                         return;
+                    }
+
+                    setupCsvDownload();
+                    setupExcelDownload();
+
+                    downloadArea.classList.remove('hidden');
+                    showMessage('File processed successfully! You can now download the new file.', 'success');
+
+                } catch (error) {
+                    console.error('Error processing file:', error);
+                    showMessage('An error occurred during processing. Please check the file format.', 'error');
                 }
-            });
-        })();
+            };
+
+            reader.onerror = () => {
+                showMessage('Failed to read the file. Please try again.', 'error');
+            };
+
+            if (isExcel) {
+                reader.readAsArrayBuffer(file);
+            } else {
+                reader.readAsText(file);
+            }
+        });
     </script>
 </body>
 </html>
