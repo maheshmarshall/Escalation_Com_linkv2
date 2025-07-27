@@ -1,0 +1,253 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Excel/CSV Data Processor</title>
+    <!-- Tailwind CSS CDN for styling -->
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        /* Custom font for a clean look */
+        body {
+            font-family: "Inter", sans-serif;
+            background-color: #f3f4f6; /* Light gray background */
+        }
+    </style>
+    <!-- SheetJS library for Excel file parsing and writing -->
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
+</head>
+<body class="flex items-center justify-center min-h-screen p-4">
+    <div class="bg-white p-8 rounded-lg shadow-xl w-full max-w-lg border border-gray-200">
+        <h1 class="text-3xl font-extrabold text-gray-900 mb-6 text-center">Excel/CSV Data Processor</h1>
+
+        <div class="mb-6">
+            <label for="csvFile" class="block text-sm font-medium text-gray-700 mb-2">Upload Excel or CSV File:</label>
+            <input type="file" id="csvFile" accept=".csv, .xlsx, .xls" class="block w-full text-sm text-gray-900
+                file:mr-4 file:py-2 file:px-4
+                file:rounded-full file:border-0
+                file:text-sm file:font-semibold
+                file:bg-blue-50 file:text-blue-700
+                hover:file:bg-blue-100
+                cursor-pointer rounded-md border border-gray-300 p-2.5 shadow-sm focus:ring-blue-500 focus:border-blue-500">
+        </div>
+
+        <button id="processButton" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-3 px-4 rounded-lg
+            focus:outline-none focus:ring-2 focus:ring-blue-500 focus:ring-opacity-75
+            transition duration-300 ease-in-out transform hover:scale-105 shadow-md">
+            Process File
+        </button>
+
+        <div id="messageBox" class="mt-6 p-4 bg-blue-50 text-blue-800 rounded-lg text-sm hidden" role="alert">
+            <!-- Messages will be displayed here -->
+        </div>
+
+        <div id="downloadArea" class="mt-6 hidden flex flex-col space-y-4">
+            <a id="downloadCsvLink" href="#" download="processed_data.csv" class="w-full inline-block text-center
+                bg-green-600 hover:bg-green-700 text-white font-bold py-3 px-4 rounded-lg
+                focus:outline-none focus:ring-2 focus:ring-green-500 focus:ring-opacity-75
+                transition duration-300 ease-in-out transform hover:scale-105 shadow-md">
+                Download as CSV
+            </a>
+            <a id="downloadExcelLink" href="#" download="processed_data.xlsx" class="w-full inline-block text-center
+                bg-purple-600 hover:bg-purple-700 text-white font-bold py-3 px-4 rounded-lg
+                focus:outline-none focus:ring-2 focus:ring-purple-500 focus:ring-opacity-75
+                transition duration-300 ease-in-out transform hover:scale-105 shadow-md">
+                Download as Excel
+            </a>
+        </div>
+    </div>
+
+    <script>
+        // Get references to HTML elements
+        const csvFileInput = document.getElementById('csvFile');
+        const processButton = document.getElementById('processButton');
+        const messageBox = document.getElementById('messageBox');
+        const downloadArea = document.getElementById('downloadArea');
+        const downloadCsvLink = document.getElementById('downloadCsvLink');
+        const downloadExcelLink = document.getElementById('downloadExcelLink');
+
+        // Define the maximum file size in bytes (20MB)
+        const MAX_FILE_SIZE_BYTES = 20 * 1024 * 1024; // 20 MB
+
+        // Variables to store processed data and original headers
+        let processedDataRows = [];
+        let originalHeaders = [];
+
+        // Function to display messages to the user
+        function showMessage(message, type = 'info') {
+            messageBox.textContent = message;
+            messageBox.classList.remove('hidden', 'bg-red-50', 'text-red-800', 'bg-blue-50', 'text-blue-800', 'bg-green-50', 'text-green-800');
+            if (type === 'error') {
+                messageBox.classList.add('bg-red-50', 'text-red-800');
+            } else if (type === 'success') {
+                messageBox.classList.add('bg-green-50', 'text-green-800');
+            } else {
+                messageBox.classList.add('bg-blue-50', 'text-blue-800');
+            }
+            messageBox.classList.remove('hidden');
+        }
+
+        // Function to hide messages
+        function hideMessage() {
+            messageBox.classList.add('hidden');
+        }
+
+        // Function to generate and download CSV
+        function downloadCsv() {
+            // Ensure headers are joined correctly for CSV
+            const csvContent = originalHeaders.join(',') + '\n' +
+                               processedDataRows.map(row => row.join(',')).join('\n');
+            const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+            const url = URL.createObjectURL(blob);
+            downloadCsvLink.href = url;
+            downloadCsvLink.download = 'processed_data.csv';
+        }
+
+        // Function to generate and download Excel
+        function downloadExcel() {
+            const dataForExcel = [originalHeaders, ...processedDataRows];
+            const ws = XLSX.utils.aoa_to_sheet(dataForExcel);
+            const wb = XLSX.utils.book_new();
+            XLSX.utils.book_append_sheet(wb, ws, "Sheet1");
+            const wbout = XLSX.write(wb, { bookType: 'xlsx', type: 'array' });
+            const blob = new Blob([wbout], { type: 'application/octet-stream' });
+            const url = URL.createObjectURL(blob);
+            downloadExcelLink.href = url;
+            downloadExcelLink.download = 'processed_data.xlsx';
+        }
+
+        // Event listeners for download buttons
+        downloadCsvLink.addEventListener('click', downloadCsv);
+        downloadExcelLink.addEventListener('click', downloadExcel);
+
+        // Event listener for the process button
+        processButton.addEventListener('click', () => {
+            hideMessage(); // Clear previous messages
+            downloadArea.classList.add('hidden'); // Hide download links initially
+            processedDataRows = []; // Clear previous data
+            originalHeaders = []; // Clear previous headers
+
+            const file = csvFileInput.files[0]; // Get the selected file
+            console.log('File input files array:', csvFileInput.files); // Log the files array for debugging
+            console.log('Selected file:', file); // Log the selected file for debugging
+
+            // Check if a file is selected
+            if (!file) {
+                showMessage('Please select an Excel or CSV file first.', 'error');
+                return;
+            }
+
+            // Check file size
+            if (file.size > MAX_FILE_SIZE_BYTES) {
+                showMessage(`File size exceeds the limit of ${MAX_FILE_SIZE_BYTES / (1024 * 1024)}MB. Please upload a smaller file.`, 'error');
+                return;
+            }
+
+            // Check if the file type is CSV or Excel
+            const fileExtension = file.name.split('.').pop().toLowerCase();
+            const isCsv = fileExtension === 'csv';
+            const isExcel = fileExtension === 'xlsx' || fileExtension === 'xls';
+
+            if (!isCsv && !isExcel) {
+                showMessage('Please upload a valid CSV or Excel (.xlsx, .xls) file.', 'error');
+                return;
+            }
+
+            showMessage('Processing your file...', 'info');
+
+            const reader = new FileReader(); // Create a new FileReader object
+
+            reader.onload = (e) => {
+                try {
+                    let csvContent;
+
+                    if (isExcel) {
+                        // For Excel files, read as ArrayBuffer and parse with SheetJS
+                        const data = new Uint8Array(e.target.result);
+                        const workbook = XLSX.read(data, { type: 'array' });
+
+                        // Assume the first sheet is the one to process
+                        const sheetName = workbook.SheetNames[0];
+                        const worksheet = workbook.Sheets[sheetName];
+
+                        // Convert sheet to CSV format
+                        csvContent = XLSX.utils.sheet_to_csv(worksheet);
+                    } else {
+                        // For CSV files, read as text
+                        csvContent = e.target.result;
+                    }
+
+                    const lines = csvContent.split(/\r?\n/).filter(line => line.trim() !== ''); // Split into lines, filter out empty ones
+
+                    if (lines.length === 0) {
+                        showMessage('The uploaded file is empty or could not be parsed.', 'error');
+                        return;
+                    }
+
+                    // Extract headers from the first line and store them
+                    originalHeaders = lines[0].split(',').map(h => h.trim());
+
+                    // Create a map for quick lookup of column indices by header name
+                    const headerIndexMap = {};
+                    originalHeaders.forEach((header, index) => {
+                        headerIndexMap[header] = index;
+                    });
+
+                    // Validate if essential headers exist
+                    const requiredHeaders = ['ChargeType', 'ContractStartDate'];
+                    for (const reqHeader of requiredHeaders) {
+                        if (headerIndexMap[reqHeader] === undefined) {
+                            showMessage(`Missing required column: "${reqHeader}". Please ensure your file has this column.`, 'error');
+                            return;
+                        }
+                    }
+
+                    const chargeTypeIndex = headerIndexMap['ChargeType'];
+                    const contractStartDateIndex = headerIndexMap['ContractStartDate'];
+
+                    // Process each data line (skip header line)
+                    for (let i = 1; i < lines.length; i++) {
+                        const values = lines[i].split(','); // Split current line into values
+
+                        // Skip row if ChargeType is '14'
+                        if (values[chargeTypeIndex] && values[chargeTypeIndex].trim() === '14') {
+                            continue;
+                        }
+
+                        // Create a new row array, copying all original values
+                        const currentRow = values.map(val => val.trim());
+
+                        // Extract year from 'ContractStartDate'
+                        if (currentRow[contractStartDateIndex] && currentRow[contractStartDateIndex].length >= 4) {
+                            currentRow[contractStartDateIndex] = currentRow[contractStartDateIndex].substring(0, 4);
+                        } else {
+                            // Handle cases where ContractStartDate might be too short or missing
+                            currentRow[contractStartDateIndex] = ''; // Set to empty string
+                        }
+
+                        processedDataRows.push(currentRow);
+                    }
+
+                    downloadArea.classList.remove('hidden'); // Show the download links
+                    showMessage('File processed successfully! You can now download the new file.', 'success');
+
+                } catch (error) {
+                    console.error('Error processing file:', error);
+                    showMessage('An error occurred during processing. Please ensure the file is correctly formatted and matches the expected column structure.', 'error');
+                }
+            };
+
+            reader.onerror = () => {
+                showMessage('Failed to read the file. Please try again.', 'error');
+            };
+
+            // Read the file based on its type
+            if (isExcel) {
+                reader.readAsArrayBuffer(file); // Read Excel as ArrayBuffer
+            } else {
+                reader.readAsText(file); // Read CSV as text
+            }
+        });
+    </script>
+</body>
+</html>
