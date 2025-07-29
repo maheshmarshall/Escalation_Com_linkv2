@@ -224,7 +224,10 @@
                 ['Grand Total (NewAmountInclVAT)', grandTotal.toFixed(2)]
             ];
 
-            pivotData.forEach(row => row.push(''));
+            // Add an empty column for spacing in the pivot sheet
+            pivotData.forEach(row => row.push('')); 
+
+            // Merge summary data into the pivot data array for side-by-side display
             for (let i = 0; i < summaryData.length; i++) {
                 const summaryRow = summaryData[i];
                 if (pivotData[i]) {
@@ -301,22 +304,32 @@
                     const contractStartDateIndex = headerIndexMap.get('ContractStartDate');
                     const yearColIndex = headerIndexMap.get('Year');
                     const expectedColumnCount = originalHeaders.length;
+                    
+                    // Define the charge types to be excluded
+                    const excludedChargeTypes = ['14', '32', '50', '68', '98'];
 
                     const dataRows = dataArray.slice(1);
                     for (const row of dataRows) {
-                        if (String(row[chargeTypeIndex]).trim() === '14') continue;
+                        // Check if the current row's charge type should be excluded
+                        if (excludedChargeTypes.includes(String(row[chargeTypeIndex]).trim())) {
+                            continue;
+                        }
 
                         const currentRow = [...row];
                         const dateValue = String(currentRow[contractStartDateIndex]).trim();
                         let year = '';
                         if (dateValue && dateValue.length >= 4) {
-                             const parsedYear = new Date(dateValue).getFullYear();
-                             year = !isNaN(parsedYear) ? parsedYear : dateValue.substring(0, 4);
+                             // Try parsing as a full date first
+                            const parsedYear = new Date(dateValue).getFullYear();
+                            // Fallback to substring if parsing fails (for formats like '2023-01')
+                            year = !isNaN(parsedYear) ? parsedYear : dateValue.substring(0, 4);
                         }
                         
+                        // Ensure the row has enough columns before setting the year
                         while (currentRow.length < yearColIndex) currentRow.push('');
                         currentRow[yearColIndex] = year;
 
+                        // Pad or truncate the row to match the header length
                         while (currentRow.length < expectedColumnCount) currentRow.push('');
                         if (currentRow.length > expectedColumnCount) currentRow.length = expectedColumnCount;
 
