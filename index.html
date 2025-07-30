@@ -186,6 +186,7 @@
         function createPivotData() {
             const headerMap = new Map(originalHeaders.map((h, i) => [h, i]));
             const customerCodeIndex = headerMap.get('CustomerCode');
+            const contractNoIndex = headerMap.get('ContractNo'); // New
             const newAmountIndex = headerMap.get('NewAmountInclVAT');
             const yearIndex = headerMap.get('Year');
 
@@ -195,27 +196,29 @@
 
             for (const row of processedDataRows) {
                 const customerCode = row[customerCodeIndex];
+                const contractNo = row[contractNoIndex]; // New
                 const year = row[yearIndex];
                 const amount = parseFloat(row[newAmountIndex]) || 0;
                 
-                if (!customerCode || !year) continue;
+                if (!customerCode || !contractNo || !year) continue; // Updated check
                 uniqueCustomers.add(customerCode);
                 grandTotal += amount;
-                const key = `${customerCode}|${year}`;
+                const key = `${customerCode}|${contractNo}|${year}`; // Updated key
                 pivotAggregates.set(key, (pivotAggregates.get(key) || 0) + amount);
             }
 
             const sortedAggregates = Array.from(pivotAggregates.entries()).sort((a, b) => {
-                const [codeA, yearA] = a[0].split('|');
-                const [codeB, yearB] = b[0].split('|');
+                const [codeA, contractA, yearA] = a[0].split('|'); // Updated destructuring
+                const [codeB, contractB, yearB] = b[0].split('|'); // Updated destructuring
                 if (yearA !== yearB) return yearB - yearA;
-                return codeA.localeCompare(codeB);
+                if (codeA !== codeB) return codeA.localeCompare(codeB);
+                return String(contractA).localeCompare(String(contractB));
             });
 
-            const pivotData = [['CustomerCode', 'Year', 'Sum of NewAmountInclVAT']];
+            const pivotData = [['CustomerCode', 'ContractNo', 'Year', 'Sum of NewAmountInclVAT']]; // Updated header
             sortedAggregates.forEach(([key, sum]) => {
-                const [customerCode, year] = key.split('|');
-                pivotData.push([customerCode, year, sum]);
+                const [customerCode, contractNo, year] = key.split('|'); // Updated destructuring
+                pivotData.push([customerCode, contractNo, year, sum]); // Updated row
             });
             
             const summaryData = [
@@ -296,7 +299,8 @@
                     }
                     const headerIndexMap = new Map(originalHeaders.map((h, i) => [h, i]));
 
-                    ['ChargeType', 'ContractStartDate', 'CustomerCode', 'NewAmountInclVAT'].forEach(h => {
+                    // Updated required columns check
+                    ['ChargeType', 'ContractStartDate', 'CustomerCode', 'ContractNo', 'NewAmountInclVAT'].forEach(h => {
                         if (!headerIndexMap.has(h)) throw new Error(`Missing required column: "${h}".`);
                     });
                     
@@ -337,8 +341,9 @@
                     }
 
                     if (processedDataRows.length === 0) {
-                         showMessage('Processing complete, but no data rows remained after filtering.', 'info');
-                         return;
+                        showMessage('Processing complete, but no data rows remained after filtering.', 'info');
+                        toggleProcessingState(false); // Ensure button is re-enabled
+                        return;
                     }
 
                     setupCsvDownload();
